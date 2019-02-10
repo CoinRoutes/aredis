@@ -406,7 +406,6 @@ class BaseConnection:
             await self._connect()
         except Exception as exc:
             print("unable to recconect in BaseConnection {}".format(str(exc)))
-            import traceback; traceback.print_exc()
             raise ConnectionError()
         # run any user callbacks. right now the only internal callback
         # is for pubsub channel/pattern resubscription

@@ -45,9 +45,11 @@ class PubSub(object):
 
     def reset(self):
         if self.connection:
+
             self.connection.disconnect()
             self.connection.clear_connect_callbacks()
             self.connection_pool.release(self.connection)
+
             self.connection = None
         self.channels = {}
         self.patterns = {}
@@ -122,7 +124,11 @@ class PubSub(object):
                 raise
             # Connect manually here. If the Redis server is down, this will
             # fail and raise a ConnectionError as desired.
-            await connection.connect()
+            try:
+                await connection.connect()
+            except Exception as e:
+                connection.clear_connect_callbacks()
+                raise e
             # the ``on_connect`` callback should haven been called by the
             # connection to resubscribe us to any channels and patterns we were
             # previously listening to
@@ -329,13 +335,19 @@ class ClusterPubSub(PubSub):
     """
     Wrapper for PubSub class.
     """
-
+    reconnect_closed_coro = None
     def __init__(self, *args, **kwargs):
         super(ClusterPubSub, self).__init__(*args, **kwargs)
-        self.reconnect_closed = asyncio.ensure_future(self.reconnect_closed())
+
         self.last_pong = None
 
+    def reset(self):
+        if self.reconnect_closed_coro:
+            self.reconnect_closed_coro.cancel()
+        return super(ClusterPubSub, self).reset()
+
     def handle_message(self, response, ignore_subscribe_messages=False):
+        print(response)
         if response[0] == "pong":
 
             print("handling pong")
@@ -346,35 +358,46 @@ class ClusterPubSub(PubSub):
         else:
             return super(ClusterPubSub, self).handle_message(response, ignore_subscribe_messages)
 
-    async def reconnect_closed(self):
-        while True:
+    async def ping_handler(self):
+        while self.connection is not None:
             try:
-                if self.connection is not None:
-                    await self.connection.send_command('ping')
+                await self.connection.send_command('ping')
             except:
                 print("unable to ping cluster connection")
                 import traceback; traceback.print_exc()
+            await asyncio.sleep(2)
+
+
+    async def reconnect_closed(self):
+        ping_coro = asyncio.ensure_future(self.ping_handler())
+        while self.connection is not None:
+            print(self.connection)
             try:
                 if self.last_pong:
-                    if time.time() - self.last_pong > 15:
+                    if time.time() - self.last_pong > 20:
                         connection = self.connection
-                        print("no pong in 10 seconds")
-                        await self.connection_pool.nodes.increment_reinitialize_counter()
+                        print("no pong in 30 seconds")
+                        #await self.connection_pool.nodes.increment_reinitialize_counter()
                         # for task in self.connection._connect_callbacks:
                         #     task.cancel()
+
                         self.connection.clear_connect_callbacks()
                         self.connection_pool.release(connection)
                         # self.connection.disconnect()
                         self.connection_pool.disconnect()
                         self.connection_pool.reset()
-                        connection = self.connection = self.connection_pool.get_connection('pubsub')
+                        await self.connection_pool.nodes.initialize()
+                        connection  = self.connection_pool.get_connection('pubsub')
+                        del self.connection
+                        self.connection = connection
                         self.connection.register_connect_callback(self.on_connect)
-                        await asyncio.sleep(30)
+                        await asyncio.sleep(5)
                 await asyncio.sleep(3)
             except Exception as e:
                 print("exception in reconnect pubsub handler")
                 import traceback
                 traceback.print_exc()
+        ping_coro.cancel()
 
     # async def _execute(self, connection, command, *args):
     #     if 'send_command' in str(command):
@@ -418,14 +441,19 @@ class ClusterPubSub(PubSub):
 
         if self.connection is None:
 
+
             connection = self.connection = self.connection_pool.get_connection(
                 'pubsub',
                 channel=args[1],
             )
             self.last_pong = time.time()
+
             # register a callback that re-subscribes to any channels we
             # were listening to when we were disconnected
             self.connection.register_connect_callback(self.on_connect)
+            if self.reconnect_closed_coro is None:
+                self.reconnect_closed_coro = asyncio.ensure_future(self.reconnect_closed())
+
         try:
             connection = self.connection
             await self._execute(connection, connection.send_command, *args)
