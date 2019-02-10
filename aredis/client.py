@@ -403,9 +403,10 @@ class StrictRedisCluster(StrictRedis, *cluster_mixins):
                 return await self.parse_response(r, command, **kwargs)
             except (RedisClusterException, BusyLoadingError):
                 raise
-            except (CancelledError, ConnectionError, TimeoutError):
+            except (CancelledError, ConnectionError, TimeoutError) as e:
                 try_random_node = True
-
+                print("redis cluster exception {}".format(str(e)))
+                import traceback; traceback.print_exc()
                 if ttl < self.RedisClusterRequestTTL / 2:
                     await asyncio.sleep(0.1)
             except ClusterDownError as e:
@@ -432,6 +433,8 @@ class StrictRedisCluster(StrictRedis, *cluster_mixins):
             finally:
                 self.connection_pool.release(r)
 
+        print("Reinitialize Counter: {}".format(self.connection_pool.nodes.reinitialize_counter))
+        await self.connection_pool.nodes.increment_reinitialize_counter()
         raise ClusterError('TTL exhausted.')
 
     async def execute_command_on_nodes(self, nodes, *args, **kwargs):

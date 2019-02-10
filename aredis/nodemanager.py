@@ -201,6 +201,7 @@ class NodeManager(object):
         for i in range(1, ct):
             self.reinitialize_counter += 1
             if self.reinitialize_counter % self.reinitialize_steps == 0:
+                print("reinitializing nodemanager")
                 await self.initialize()
 
     async def cluster_require_full_coverage(self, nodes_cache):
