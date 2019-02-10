@@ -1,7 +1,7 @@
 import asyncio
 import threading
 from asyncio.futures import CancelledError
-
+import time
 from aredis.exceptions import PubSubError, ConnectionError, TimeoutError
 from aredis.utils import (list_or_args,
                           iteritems,
@@ -332,8 +332,80 @@ class ClusterPubSub(PubSub):
 
     def __init__(self, *args, **kwargs):
         super(ClusterPubSub, self).__init__(*args, **kwargs)
+        self.reconnect_closed = asyncio.ensure_future(self.reconnect_closed())
+        self.last_pong = None
 
-    async def execute_command(self, *args, **kwargs):
+    def handle_message(self, response, ignore_subscribe_messages=False):
+        if response[0] == "pong":
+
+            print("handling pong")
+            self.last_pong = time.time()
+            return
+        elif response[0] not in ['message', 'subscribe']:
+            print("response not recegnized {}".format(response))
+        else:
+            return super(ClusterPubSub, self).handle_message(response, ignore_subscribe_messages)
+
+    async def reconnect_closed(self):
+        while True:
+            try:
+                if self.connection is not None:
+                    await self.connection.send_command('ping')
+            except:
+                print("unable to ping cluster connection")
+                import traceback; traceback.print_exc()
+            try:
+                if self.last_pong:
+                    if time.time() - self.last_pong > 15:
+                        connection = self.connection
+                        print("no pong in 10 seconds")
+                        await self.connection_pool.nodes.increment_reinitialize_counter()
+                        # for task in self.connection._connect_callbacks:
+                        #     task.cancel()
+                        self.connection.clear_connect_callbacks()
+                        self.connection_pool.release(connection)
+                        # self.connection.disconnect()
+                        self.connection_pool.disconnect()
+                        self.connection_pool.reset()
+                        connection = self.connection = self.connection_pool.get_connection('pubsub')
+                        self.connection.register_connect_callback(self.on_connect)
+                        await asyncio.sleep(30)
+                await asyncio.sleep(3)
+            except Exception as e:
+                print("exception in reconnect pubsub handler")
+                import traceback
+                traceback.print_exc()
+
+    # async def _execute(self, connection, command, *args):
+    #     if 'send_command' in str(command):
+    #         print("execute args command: {} args: {}".format(command, args))
+    #     if "send_command" in str(command) and len(args) >1:
+    #
+    #         ttl = 26
+    #         while ttl > 0:
+    #             try:
+    #                 return await super(ClusterPubSub, self)._execute(connection, command, *args)
+    #             except Exception as e:
+    #                 await asyncio.sleep(0.2)
+    #                 await self.connection_pool.nodes.increment_reinitialize_counter()
+    #                 print("error executing pubsub command, resetting connection {} args: ".format(e. args))
+    #                 connection = self.connection = self.connection_pool.get_connection(
+    #                     'pubsub',
+    #                     channel=args[1],
+    #                 )
+    #                 # register a callback that re-subscribes to any channels we
+    #                 # were listening to when we were disconnected
+    #                 self.connection.register_connect_callback(self.on_connect)
+    #             ttl-=1
+    #         raise ConnectionError("Cluster TTL exceeded for Pubsub")
+    #     else:
+    #         try:
+    #             return await super(ClusterPubSub, self)._execute(connection, command, *args)
+    #         except Exception as e:
+    #             print("exception in _execute")
+    #             import traceback; traceback.print_exc()
+
+    async def execute_command(self, *args, tries=0, **kwargs):
         """
         Execute a publish/subscribe command.
 
@@ -345,12 +417,26 @@ class ClusterPubSub(PubSub):
         await self.connection_pool.initialize()
 
         if self.connection is None:
-            self.connection = self.connection_pool.get_connection(
+
+            connection = self.connection = self.connection_pool.get_connection(
                 'pubsub',
                 channel=args[1],
             )
+            self.last_pong = time.time()
             # register a callback that re-subscribes to any channels we
             # were listening to when we were disconnected
             self.connection.register_connect_callback(self.on_connect)
-        connection = self.connection
-        await self._execute(connection, connection.send_command, *args)
+        try:
+            connection = self.connection
+            await self._execute(connection, connection.send_command, *args)
+        except Exception as e:
+            if tries > 25:
+                print("too many pubsub retries, giving up")
+                raise e
+            tries+=1
+            await self.connection_pool.nodes.increment_reinitialize_counter()
+            self.connection=None
+            await asyncio.sleep(tries+1)
+            print("Redis pubsub _execute exception {}".format(e))
+            import traceback; traceback.print_exc()
+            await self.execute_command(*args, tries=tries,  **kwargs)

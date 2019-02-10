@@ -405,6 +405,8 @@ class BaseConnection:
         try:
             await self._connect()
         except Exception as exc:
+            print("unable to recconect in BaseConnection {}".format(str(exc)))
+            import traceback; traceback.print_exc()
             raise ConnectionError()
         # run any user callbacks. right now the only internal callback
         # is for pubsub channel/pattern resubscription
@@ -442,6 +444,7 @@ class BaseConnection:
             raise
         if isinstance(response, RedisError):
             raise response
+        #print("res: {} type: {}".format(response, type(response)))
         self.awaiting_response = False
         return response
 

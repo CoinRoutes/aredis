@@ -406,7 +406,6 @@ class StrictRedisCluster(StrictRedis, *cluster_mixins):
             except (CancelledError, ConnectionError, TimeoutError) as e:
                 try_random_node = True
                 print("redis cluster exception {}".format(str(e)))
-                import traceback; traceback.print_exc()
                 if ttl < self.RedisClusterRequestTTL / 2:
                     await asyncio.sleep(0.1)
             except ClusterDownError as e:
