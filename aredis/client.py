@@ -388,9 +388,17 @@ class StrictRedisCluster(StrictRedis, *cluster_mixins):
             else:
                 if self.refresh_table_asap:
                     # MOVED
-                    node = self.connection_pool.get_master_node_by_slot(slot)
+                    try:
+                        node = self.connection_pool.get_master_node_by_slot(slot)
+                    except KeyError:
+                        await self.connection_pool.nodes.increment_reinitialize_counter()
+                        continue
                 else:
-                    node = self.connection_pool.get_node_by_slot(slot)
+                    try:
+                        node = self.connection_pool.get_node_by_slot(slot)
+                    except KeyError:
+                        await self.connection_pool.nodes.increment_reinitialize_counter()
+                        continue
                 r = self.connection_pool.get_connection_by_node(node)
 
             try:

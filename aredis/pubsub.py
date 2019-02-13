@@ -347,10 +347,7 @@ class ClusterPubSub(PubSub):
         return super(ClusterPubSub, self).reset()
 
     def handle_message(self, response, ignore_subscribe_messages=False):
-        print(response)
         if response[0] == "pong":
-
-            print("handling pong")
             self.last_pong = time.time()
             return
         elif response[0] not in ['message', 'subscribe']:
