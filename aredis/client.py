@@ -440,8 +440,8 @@ class StrictRedisCluster(StrictRedis, *cluster_mixins):
             finally:
                 self.connection_pool.release(r)
 
-        print("Reinitialize Counter: {}".format(self.connection_pool.nodes.reinitialize_counter))
-        await self.connection_pool.nodes.increment_reinitialize_counter()
+        #print("Reinitialize Counter: {}".format(self.connection_pool.nodes.reinitialize_counter))
+        #await self.connection_pool.nodes.increment_reinitialize_counter()
         raise ClusterError('TTL exhausted.')
 
     async def execute_command_on_nodes(self, nodes, *args, **kwargs):
