@@ -5,6 +5,8 @@ from aredis.utils import (b, hash_slot)
 from aredis.exceptions import (ConnectionError,
                                RedisClusterException)
 
+import threading
+import asyncio
 
 class NodeManager(object):
     """
@@ -35,6 +37,8 @@ class NodeManager(object):
 
         if not self.startup_nodes:
             raise RedisClusterException("No startup nodes provided")
+
+        self.initialize_locks = {}
 
     def encode(self, value):
         """Return a bytestring representation of the value"""
@@ -197,12 +201,24 @@ class NodeManager(object):
         self.nodes = nodes_cache
         self.reinitialize_counter = 0
 
+    def _get_lock(self):
+        tid = threading.get_ident()
+        if tid not in self.initialize_locks:
+            lock = self.initialize_locks[tid] = asyncio.Lock()
+        return lock
+
+
     async def increment_reinitialize_counter(self, ct=1):
         for i in range(1, ct):
             self.reinitialize_counter += 1
             if self.reinitialize_counter % self.reinitialize_steps == 0:
-                print("reinitializing nodemanager")
-                await self.initialize()
+                lock = self._get_lock()
+                if not lock.locked():
+                    async with lock:
+                        print("reinitializing nodemanager")
+                        await self.initialize()
+                else:
+                    print("reinitialize lock already locked, not initializing")
 
     async def cluster_require_full_coverage(self, nodes_cache):
         """
