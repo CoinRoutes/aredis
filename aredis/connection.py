@@ -64,7 +64,13 @@ class SocketBuffer(object):
                 # an empty string indicates the server shutdown the socket
                 if isinstance(data, bytes) and len(data) == 0:
                     raise ConnectionError('Socket closed on remote end')
-                buf.write(data)
+                try:
+                    buf.write(data)
+                except ValueError as e:
+                    if 'I/O operation on closed file' in str(e):
+                        raise ConnectionError("Cannot write to buffer, must be closed %s" % (e.args,) )
+                    raise e
+
                 data_length = len(data)
                 self.bytes_written += data_length
                 marker += data_length
