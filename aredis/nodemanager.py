@@ -126,6 +126,9 @@ class NodeManager(object):
             try:
                 r = self.get_redis_link(host=node['host'], port=node['port'])
                 cluster_slots = await r.cluster_slots()
+                if cluster_slots is None:
+                    # todo figure out why this happens??
+                    continue
                 startup_nodes_reachable = True
             except ConnectionError:
                 continue
@@ -213,6 +216,7 @@ class NodeManager(object):
             self.reinitialize_counter += 1
             if self.reinitialize_counter % self.reinitialize_steps == 0:
                 lock = self._get_lock()
+                await asyncio.sleep(0) # try and fix deadlock https://bugs.python.org/issue27585
                 if not lock.locked():
                     async with lock:
                         print("reinitializing nodemanager")
