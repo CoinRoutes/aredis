@@ -207,8 +207,8 @@ class NodeManager(object):
     def _get_lock(self):
         tid = threading.get_ident()
         if tid not in self.initialize_locks:
-            lock = self.initialize_locks[tid] = asyncio.Lock()
-        return lock
+            self.initialize_locks[tid] = asyncio.Lock()
+        return self.initialize_locks[tid]
 
 
     async def increment_reinitialize_counter(self, ct=1):
