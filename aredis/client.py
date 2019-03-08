@@ -366,7 +366,9 @@ class StrictRedisCluster(StrictRedis, *cluster_mixins):
 
         # If set externally we must update it before calling any commands
         if self.refresh_table_asap:
-            await self.connection_pool.nodes.initialize()
+            # todo remove this flag or as there is no need for additional global state in addition to the reinitialize lock
+            await self.connection_pool.nodes.increment_reinitialize_counter()
+            #await self.connection_pool.nodes.initialize_with_lock()
             self.refresh_table_asap = False
 
         redirect_addr = None
